@@ -1,0 +1,5 @@
+.env
+__pycache__/
+virtualclassroom/
+history.jsonl
+methods.json
