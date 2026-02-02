@@ -56,6 +56,8 @@ METHOD_PROMPTS = {
     ),
 }
 DEFAULT_METHOD = "direct_instruction"
+SKILLS_PATH = Path("skills.json")
+SKILLS_INTRO_PATH = Path("skillsIntro.json")
 METHODS_PATH = Path("methods.json")
 HISTORY_PATH = Path("history.jsonl")
 
@@ -76,16 +78,82 @@ def _default_methods_payload():
         ],
     }
 
-def _load_methods_payload():
-    if METHODS_PATH.exists():
+_INTRO_TEMPLATES = {
+    "direct_instruction": "Step-by-step explanation with a definition, key points, an example, and a brief summary.",
+    "scaffolding": "Breaks ideas into small steps with quick check-for-understanding questions.",
+    "socratic": "Uses guiding questions to help the learner discover the idea before a short explanation.",
+    "worked_example": "Shows a fully worked example, then gives a similar practice problem.",
+    "analogy_first": "Starts with an everyday analogy, maps it to the concept, then formalizes it.",
+    "philo": "Explains complex ideas in very simple, child-friendly language.",
+}
+
+def _build_intro_for(method: dict):
+    mid = method.get("id", "").strip()
+    label = method.get("label", "").strip()
+    prompt = method.get("prompt", "").strip()
+    if mid in _INTRO_TEMPLATES:
+        return _INTRO_TEMPLATES[mid]
+    first_sentence = prompt.split(".")[0].strip()
+    if first_sentence:
+        return first_sentence + "."
+    return f"Briefly explains {label or mid}."
+
+def _default_skills_intro(methods: list[dict]):
+    return {
+        "methods": [
+            {"id": m["id"], "label": m.get("label", m["id"]), "intro": _build_intro_for(m)}
+            for m in methods
+        ]
+    }
+
+def _load_skills_intro(methods: list[dict]):
+    if SKILLS_INTRO_PATH.exists():
         try:
-            data = json.loads(METHODS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(SKILLS_INTRO_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "methods" in data:
+                existing = {m.get("id"): m for m in data.get("methods", [])}
+                merged = []
+                for m in methods:
+                    mid = m["id"]
+                    if mid in existing and existing[mid].get("intro"):
+                        merged.append(
+                            {
+                                "id": mid,
+                                "label": existing[mid].get("label", m.get("label", mid)),
+                                "intro": existing[mid]["intro"],
+                            }
+                        )
+                    else:
+                        merged.append(
+                            {"id": mid, "label": m.get("label", mid), "intro": _build_intro_for(m)}
+                        )
+                data = {"methods": merged}
+                SKILLS_INTRO_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                return data
+        except json.JSONDecodeError:
+            pass
+    data = _default_skills_intro(methods)
+    SKILLS_INTRO_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return data
+
+def _load_methods_payload():
+    if SKILLS_PATH.exists():
+        try:
+            data = json.loads(SKILLS_PATH.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "methods" in data:
                 return data
         except json.JSONDecodeError:
             pass
+    if METHODS_PATH.exists():
+        try:
+            data = json.loads(METHODS_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "methods" in data:
+                SKILLS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                return data
+        except json.JSONDecodeError:
+            pass
     data = _default_methods_payload()
-    METHODS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    SKILLS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return data
 
 def _apply_methods_payload(data: dict):
@@ -100,6 +168,7 @@ def _apply_methods_payload(data: dict):
 
 METHODS_DATA = _load_methods_payload()
 _apply_methods_payload(METHODS_DATA)
+SKILLS_INTRO = _load_skills_intro(METHODS_DATA.get("methods", []))
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -109,6 +178,36 @@ def _start_session(method_id: str):
     session_id = str(uuid.uuid4())
     session_started_at = _now_iso()
     session_method = method_id
+
+def _choose_method_id(user_msg: str):
+    methods = SKILLS_INTRO.get("methods", [])
+    ids = [m.get("id") for m in methods if m.get("id")]
+    if not ids:
+        return DEFAULT_METHOD, []
+
+    options = "\n".join([f"- {m['id']}: {m.get('intro','')}" for m in methods])
+    router_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You choose the best teaching method for a user's message. "
+                "Return only the method id from the list. No extra words."
+            ),
+        },
+        {"role": "user", "content": f"Message: {user_msg}\n\nMethods:\n{options}"},
+    ]
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=router_messages,
+            temperature=0,
+            max_tokens=20,
+        )
+        choice = (resp.choices[0].message.content or "").strip().split()[0]
+        return (choice if choice in ids else DEFAULT_METHOD), router_messages
+    except Exception:
+        return DEFAULT_METHOD, router_messages
 
 def _append_session(reason: str):
     payload = {
@@ -183,17 +282,21 @@ def chat(req: ChatRequest):
         _start_session(current_method)
         return {"reply": "Memory cleared. Let's start fresh.", "method": current_method}
 
-    # Choose / switch method
-    chosen = (req.method or current_method).strip() if req.method else current_method
-    if chosen not in METHOD_PROMPTS:
-        chosen = DEFAULT_METHOD
-
-    # If method changed, reset memory (recommended)
-    if chosen != current_method:
-        _append_session("method_change")
+    # Choose method: auto-select unless a method is explicitly provided
+    routing_messages = []
+    if req.method:
+        chosen = req.method.strip() or current_method
+        if chosen not in METHOD_PROMPTS:
+            chosen = DEFAULT_METHOD
+        if chosen != current_method:
+            _append_session("method_change")
+            current_method = chosen
+            history = []
+            _start_session(current_method)
+    else:
+        chosen, routing_messages = _choose_method_id(req.message or "")
         current_method = chosen
-        history = []
-        _start_session(current_method)
+        session_method = chosen
 
     user_msg = (req.message or "").strip()
     if not user_msg:
@@ -203,6 +306,9 @@ def chat(req: ChatRequest):
         return {"reply": "No prompt methods configured. Please add one in the Methods page.", "method": current_method}
 
     system_prompt = METHOD_PROMPTS[current_method]
+    methods_list = METHODS_DATA.get("methods", [])
+    label_map = {m["id"]: m.get("label", m["id"]) for m in methods_list}
+    method_label = label_map.get(current_method, current_method)
 
     messages = [{"role": "system", "content": system_prompt}] + history + [
         {"role": "user", "content": user_msg}
@@ -215,11 +321,21 @@ def chat(req: ChatRequest):
     )
 
     reply = resp.choices[0].message.content
+    reply = f"[{method_label}] {reply}"
 
     history.append({"role": "user", "content": user_msg})
     history.append({"role": "assistant", "content": reply})
 
-    return {"reply": reply, "method": current_method}
+    return {
+        "reply": reply,
+        "method": current_method,
+        "debug": {
+            "chosen_method": current_method,
+            "routing_messages": routing_messages,
+            "system_prompt": system_prompt,
+            "messages": messages,
+        },
+    }
 
 @app.get("/methods")
 def methods():
@@ -243,7 +359,7 @@ def session_end():
 
 @app.put("/methods")
 def update_methods(payload: MethodsUpdate):
-    global METHODS_DATA
+    global METHODS_DATA, SKILLS_INTRO
     methods = payload.methods
     if not methods:
         raise HTTPException(status_code=400, detail="At least one method is required.")
@@ -266,7 +382,8 @@ def update_methods(payload: MethodsUpdate):
         default_id = methods_clean[0]["id"]
 
     METHODS_DATA = {"default": default_id, "methods": methods_clean}
-    METHODS_PATH.write_text(json.dumps(METHODS_DATA, indent=2), encoding="utf-8")
+    SKILLS_PATH.write_text(json.dumps(METHODS_DATA, indent=2), encoding="utf-8")
     _apply_methods_payload(METHODS_DATA)
+    SKILLS_INTRO = _load_skills_intro(METHODS_DATA.get("methods", []))
 
     return {"ok": True, "default": DEFAULT_METHOD, "methods": METHODS_DATA["methods"]}

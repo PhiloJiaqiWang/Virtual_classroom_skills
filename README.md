@@ -14,7 +14,8 @@ A lightweight FastAPI app that provides a teacher-style chat UI with configurabl
 - `static/index.html` — main chat UI.
 - `static/methods.html` — methods management UI.
 - `static/history.html` — history viewer UI.
-- `methods.json` — saved prompt methods (auto-created).
+- `skills.json` — saved prompt methods (auto-created).
+- `skillsIntro.json` — short descriptions of each method (auto-created).
 - `history.jsonl` — saved chat sessions (auto-created).
 - `.env.example` — environment variable template.
 
@@ -48,6 +49,7 @@ Open:
 - History page: `http://127.0.0.1:8000/history-page`
 
 ## Notes
-- New methods are stored in `methods.json`.
+- New methods are stored in `skills.json`.
+- Method introductions are stored in `skillsIntro.json`.
 - Sessions are saved to `history.jsonl` on reset, method change, or when closing the page.
 - If you want to reset history, delete `history.jsonl`.

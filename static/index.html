@@ -38,6 +38,10 @@
     <div class="top">
   <h2 style="margin:0;">🧑‍🏫 Teacher Agent</h2>
   <div style="display:flex; gap:10px; align-items:center;">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;opacity:.85;">
+      <input id="autoRoute" type="checkbox" />
+      Auto route
+    </label>
     <select id="methodSelect" style="padding:10px;border-radius:12px;border:1px solid #253246;background:#0b0f14;color:#e8eef6;">
       <option>Loading…</option>
     </select>
@@ -57,6 +61,14 @@
       </div>
       <div class="hint">Tip: try “Explain overfitting with a real-life example.”</div>
     </div>
+
+    <div class="card" style="margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:600;">Debug: Prompts sent to the agent</div>
+        <div class="hint">Shows routing + main prompts</div>
+      </div>
+      <pre id="debugPanel" style="white-space:pre-wrap;word-break:break-word;background:#0b0f14;border:1px solid #223146;border-radius:12px;padding:12px;margin:0;"></pre>
+    </div>
   </div>
 
   <script>
@@ -65,6 +77,8 @@
     const sendBtn = document.getElementById("sendBtn");
     const resetBtn = document.getElementById("resetBtn");
     const methodSelect = document.getElementById("methodSelect");
+    const autoRoute = document.getElementById("autoRoute");
+    const debugPanel = document.getElementById("debugPanel");
     let currentMethod = null;
 
     async function loadMethods() {
@@ -157,7 +171,7 @@ async function sendMessage(message, reset=false) {
   inputEl.value = "";
   sendBtn.disabled = true;
 
-  const method = methodSelect.value;
+  const method = autoRoute.checked ? null : methodSelect.value;
   const typing = addTyping();
 
   try {
@@ -169,7 +183,7 @@ async function sendMessage(message, reset=false) {
     const data = await res.json();
 
     // If backend reset memory due to method change, you may want to clear UI too
-    if (data.method && data.method !== currentMethod) {
+    if (!autoRoute.checked && data.method && data.method !== currentMethod) {
       currentMethod = data.method;
       chatEl.innerHTML = "";
       addMessage(`Switched method to: ${methodSelect.options[methodSelect.selectedIndex].text}. Memory reset.`, "bot");
@@ -180,6 +194,13 @@ async function sendMessage(message, reset=false) {
       clearInterval(typing.timer);
     }
     addMessage(data.reply ?? "(no reply)", "bot");
+    if (data.debug) {
+      const debugCopy = { ...data.debug };
+      if (!debugCopy.routing_messages || !debugCopy.routing_messages.length) {
+        debugCopy.routing_messages = "(routing skipped: method provided by UI)";
+      }
+      debugPanel.textContent = JSON.stringify(debugCopy, null, 2);
+    }
   } catch (e) {
     if (typing && typing.div) {
       typing.div.remove();
@@ -197,6 +218,12 @@ methodSelect.addEventListener("change", async () => {
   currentMethod = methodSelect.value;
   chatEl.innerHTML = "";
   addMessage(`Method set to: ${methodSelect.options[methodSelect.selectedIndex].text}. Ask your question!`, "bot");
+});
+
+autoRoute.addEventListener("change", () => {
+  methodSelect.disabled = autoRoute.checked;
+  const msg = autoRoute.checked ? "Auto routing enabled." : "Auto routing disabled.";
+  addMessage(msg, "bot");
 });
 
 

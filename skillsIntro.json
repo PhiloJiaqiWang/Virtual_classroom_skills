@@ -1,0 +1,34 @@
+{
+  "methods": [
+    {
+      "id": "direct_instruction",
+      "label": "Direct Instruction",
+      "intro": "Step-by-step explanation with a definition, key points, an example, and a brief summary."
+    },
+    {
+      "id": "scaffolding",
+      "label": "Scaffolding",
+      "intro": "Breaks ideas into small steps with quick check-for-understanding questions."
+    },
+    {
+      "id": "socratic",
+      "label": "Socratic",
+      "intro": "Uses guiding questions to help the learner discover the idea before a short explanation."
+    },
+    {
+      "id": "worked_example",
+      "label": "Worked Example",
+      "intro": "Shows a fully worked example, then gives a similar practice problem."
+    },
+    {
+      "id": "analogy_first",
+      "label": "Analogy First",
+      "intro": "Starts with an everyday analogy, maps it to the concept, then formalizes it."
+    },
+    {
+      "id": "philo",
+      "label": "Philo Method",
+      "intro": "Explains complex ideas in very simple, child-friendly language."
+    }
+  ]
+}
