@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Teacher Agent Chat</title>
+  <script>
+  window.MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']]
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+    }
+  };
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #0b0f14; color: #e8eef6; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 20px; }
+    .card { background: #121a24; border: 1px solid #1f2a38; border-radius: 14px; padding: 16px; }
+    .row { display: flex; gap: 10px; margin-top: 12px; }
+    input { flex: 1; padding: 12px 12px; border-radius: 12px; border: 1px solid #253246; background: #0b0f14; color: #e8eef6; }
+    button { padding: 12px 14px; border-radius: 12px; border: 1px solid #253246; background: #182233; color: #e8eef6; cursor: pointer; }
+    button:hover { background: #1d2a40; }
+    .chat { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow: auto; padding-right: 4px; }
+    .msg { padding: 12px 14px; border-radius: 14px; line-height: 1.35; white-space: pre-wrap; }
+    .user { align-self: flex-end; background: #1f2a38; border: 1px solid #2b3a51; }
+    .bot { align-self: flex-start; background: #16202e; border: 1px solid #223146; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; }
+    .hint { opacity: 0.75; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+  <h2 style="margin:0;">🧑‍🏫 Teacher Agent</h2>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <select id="methodSelect" style="padding:10px;border-radius:12px;border:1px solid #253246;background:#0b0f14;color:#e8eef6;">
+      <option>Loading…</option>
+    </select>
+    <a href="/methods-page" style="color:#8fb3ff;text-decoration:none;font-size:13px;">Manage methods</a>
+    <a href="/history-page" style="color:#8fb3ff;text-decoration:none;font-size:13px;">History</a>
+    <button id="resetBtn" title="Clear memory">Reset</button>
+  </div>
+</div>
+
+
+    <div class="card">
+      <div id="chat" class="chat"></div>
+
+      <div class="row">
+        <input id="input" placeholder="Ask a question… (Enter to send)" />
+        <button id="sendBtn">Send</button>
+      </div>
+      <div class="hint">Tip: try “Explain overfitting with a real-life example.”</div>
+    </div>
+  </div>
+
+  <script>
+    const chatEl = document.getElementById("chat");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const methodSelect = document.getElementById("methodSelect");
+    let currentMethod = null;
+
+    async function loadMethods() {
+      const res = await fetch("/methods");
+      const data = await res.json();
+
+      methodSelect.innerHTML = "";
+      data.methods.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.label;
+        methodSelect.appendChild(opt);
+      });
+
+      currentMethod = data.default;
+      methodSelect.value = currentMethod;
+    }
+
+    function renderAsciiBlocks(container, text) {
+      const parts = text.split("```ascii");
+      if (parts.length === 1) {
+        container.textContent = text;
+        return;
+      }
+      parts.forEach((part, idx) => {
+        if (idx === 0) {
+          if (part) {
+            const span = document.createElement("span");
+            span.textContent = part;
+            container.appendChild(span);
+          }
+          return;
+        }
+        const end = part.indexOf("```");
+        if (end === -1) {
+          const span = document.createElement("span");
+          span.textContent = "```ascii" + part;
+          container.appendChild(span);
+          return;
+        }
+        const code = part.slice(0, end);
+        const rest = part.slice(end + 3);
+        const pre = document.createElement("pre");
+        pre.style.whiteSpace = "pre";
+        pre.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+        pre.style.background = "#0d141f";
+        pre.style.border = "1px solid #223146";
+        pre.style.borderRadius = "10px";
+        pre.style.padding = "10px";
+        pre.style.color = "#e8eef6";
+        pre.textContent = code.trimEnd();
+        container.appendChild(pre);
+        if (rest) {
+          const span = document.createElement("span");
+          span.textContent = rest;
+          container.appendChild(span);
+        }
+      });
+    }
+
+    function addMessage(text, who) {
+  const div = document.createElement("div");
+  div.className = `msg ${who}`;
+  renderAsciiBlocks(div, text);
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    window.MathJax.typesetPromise([div]);
+  }
+  return div;
+}
+
+    function addTyping() {
+  const div = document.createElement("div");
+  div.className = "msg bot";
+  div.textContent = "Thinking";
+  let dots = 0;
+  const timer = setInterval(() => {
+    dots = (dots + 1) % 4;
+    div.textContent = "Thinking" + ".".repeat(dots);
+  }, 350);
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return { div, timer };
+}
+
+async function sendMessage(message, reset=false) {
+  if (!reset) addMessage(message, "user");
+  inputEl.value = "";
+  sendBtn.disabled = true;
+
+  const method = methodSelect.value;
+  const typing = addTyping();
+
+  try {
+    const res = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, reset, method })
+    });
+    const data = await res.json();
+
+    // If backend reset memory due to method change, you may want to clear UI too
+    if (data.method && data.method !== currentMethod) {
+      currentMethod = data.method;
+      chatEl.innerHTML = "";
+      addMessage(`Switched method to: ${methodSelect.options[methodSelect.selectedIndex].text}. Memory reset.`, "bot");
+    }
+
+    if (typing && typing.div) {
+      typing.div.remove();
+      clearInterval(typing.timer);
+    }
+    addMessage(data.reply ?? "(no reply)", "bot");
+  } catch (e) {
+    if (typing && typing.div) {
+      typing.div.remove();
+      clearInterval(typing.timer);
+    }
+    addMessage("Error: " + e.message, "bot");
+  } finally {
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+methodSelect.addEventListener("change", async () => {
+  // tell backend to switch + reset memory (backend will reset automatically)
+  currentMethod = methodSelect.value;
+  chatEl.innerHTML = "";
+  addMessage(`Method set to: ${methodSelect.options[methodSelect.selectedIndex].text}. Ask your question!`, "bot");
+});
+
+
+    sendBtn.addEventListener("click", () => {
+      const msg = inputEl.value.trim();
+      if (msg) sendMessage(msg);
+    });
+
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const msg = inputEl.value.trim();
+        if (msg) sendMessage(msg);
+      }
+    });
+
+    resetBtn.addEventListener("click", async () => {
+      await sendMessage("", true);
+      chatEl.innerHTML = "";
+      addMessage("Memory cleared. Ask me anything!", "bot");
+      inputEl.focus();
+    });
+
+    // Greeting
+   addMessage("Hi! I’m your Teacher Agent. What do you want to learn today?", "bot");
+loadMethods();
+inputEl.focus();
+
+    window.addEventListener("beforeunload", () => {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/session-end");
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chat History</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --ink: #1b1f2a;
+      --muted: #5a6375;
+      --line: #e2e6ef;
+      --accent: #2b64f0;
+    }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial; margin: 0; background: var(--bg); color: var(--ink); }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .session { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; background: #fbfcff; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .pill { display:inline-flex; align-items:center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
+    .msg { padding: 8px 10px; border-radius: 10px; line-height: 1.35; white-space: pre-wrap; margin-top: 8px; }
+    .user { background: #eef2ff; border: 1px solid #d9e2ff; }
+    .assistant { background: #f4f6f9; border: 1px solid #e1e6ef; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h2 style="margin:0;">History</h2>
+        <div class="muted">Sessions are saved on each reset or method change.</div>
+      </div>
+      <div>
+        <a href="/" class="muted" style="text-decoration:none;">Back to chat</a>
+      </div>
+    </div>
+
+    <div id="status" class="muted"></div>
+    <div id="history" class="card"></div>
+  </div>
+
+  <script>
+    const historyEl = document.getElementById("history");
+    const statusEl = document.getElementById("status");
+
+    function fmtDate(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString();
+    }
+
+    function render(items) {
+      historyEl.innerHTML = "";
+      if (!items.length) {
+        historyEl.innerHTML = "<div class='muted'>No history yet.</div>";
+        return;
+      }
+
+      items.forEach((s) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "session";
+
+        const count = Array.isArray(s.messages) ? s.messages.length : 0;
+        wrapper.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div>
+              <div><strong>${fmtDate(s.started_at)}</strong></div>
+              <div class="muted">Ended: ${fmtDate(s.ended_at)}</div>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span class="pill">Method: ${s.method || ""}</span>
+              <span class="pill">Messages: ${count}</span>
+            </div>
+          </div>
+        `;
+
+        if (Array.isArray(s.messages)) {
+          s.messages.forEach((m) => {
+            const msg = document.createElement("div");
+            msg.className = `msg ${m.role === "user" ? "user" : "assistant"}`;
+            msg.textContent = m.content || "";
+            wrapper.appendChild(msg);
+          });
+        }
+
+        historyEl.appendChild(wrapper);
+      });
+    }
+
+    async function loadHistory() {
+      statusEl.textContent = "Loading...";
+      const res = await fetch("/history");
+      const payload = await res.json();
+      render(payload.history || []);
+      statusEl.textContent = "";
+    }
+
+    loadHistory();
+  </script>
+</body>
+</html>

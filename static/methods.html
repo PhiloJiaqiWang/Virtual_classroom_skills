@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Manage Prompt Methods</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7fb;
+      --panel: #ffffff;
+      --ink: #1b1f2a;
+      --muted: #5a6375;
+      --line: #e2e6ef;
+      --accent: #2b64f0;
+      --danger: #b3261e;
+    }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial; margin: 0; background: var(--bg); color: var(--ink); }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .row { display:flex; gap: 10px; flex-wrap: wrap; }
+    .method { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; background: #fbfcff; }
+    label { font-size: 12px; color: var(--muted); display:block; margin-bottom: 4px; }
+    input, textarea, select { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); font: inherit; }
+    textarea { min-height: 90px; resize: vertical; }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.danger { color: var(--danger); border-color: #f0c7c4; background: #fff5f5; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .actions { display:flex; gap: 10px; align-items:center; }
+    .pill { display:inline-flex; align-items:center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h2 style="margin:0;">Manage Prompt Methods</h2>
+        <div class="muted">Create, edit, and set the default method used by the chat.</div>
+      </div>
+      <div class="actions">
+        <a href="/" class="muted" style="text-decoration:none;">Back to chat</a>
+        <button id="addBtn">Add Method</button>
+        <button id="saveBtn" class="primary">Save All</button>
+      </div>
+    </div>
+
+    <div id="status" class="muted"></div>
+    <div id="methods" class="card"></div>
+  </div>
+
+  <script>
+    const methodsEl = document.getElementById("methods");
+    const statusEl = document.getElementById("status");
+    const addBtn = document.getElementById("addBtn");
+    const saveBtn = document.getElementById("saveBtn");
+
+    let data = { default: "", methods: [] };
+
+    function setStatus(text, isError=false) {
+      statusEl.textContent = text;
+      statusEl.style.color = isError ? "#b3261e" : "#5a6375";
+    }
+
+    function render() {
+      methodsEl.innerHTML = "";
+      if (!data.methods.length) {
+        methodsEl.innerHTML = "<div class='muted'>No methods yet. Click Add Method.</div>";
+        return;
+      }
+
+      data.methods.forEach((m, idx) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "method";
+
+        wrapper.innerHTML = `
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <div class="pill">
+              <input type="radio" name="defaultMethod" ${data.default === m.id ? "checked" : ""} />
+              <span>Default</span>
+            </div>
+            <button class="danger" data-action="delete">Delete</button>
+          </div>
+          <div class="grid" style="margin-top:10px;">
+            <div>
+              <label>Method ID (unique)</label>
+              <input data-field="id" value="${m.id}" />
+            </div>
+            <div>
+              <label>Label (shown in UI)</label>
+              <input data-field="label" value="${m.label}" />
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <label>Prompt</label>
+            <textarea data-field="prompt">${m.prompt}</textarea>
+          </div>
+        `;
+
+        const radio = wrapper.querySelector("input[type='radio']");
+        radio.addEventListener("change", () => {
+          data.default = data.methods[idx].id;
+        });
+
+        const deleteBtn = wrapper.querySelector("button[data-action='delete']");
+        deleteBtn.addEventListener("click", () => {
+          if (data.methods.length === 1) {
+            setStatus("At least one method is required.", true);
+            return;
+          }
+          data.methods.splice(idx, 1);
+          if (data.default === m.id && data.methods.length) {
+            data.default = data.methods[0].id;
+          }
+          render();
+        });
+
+        wrapper.querySelectorAll("[data-field]").forEach((el) => {
+          el.addEventListener("input", () => {
+            const field = el.getAttribute("data-field");
+            data.methods[idx][field] = el.value;
+            if (field === "id" && data.default === m.id) {
+              data.default = el.value;
+            }
+          });
+        });
+
+        methodsEl.appendChild(wrapper);
+      });
+    }
+
+    async function loadMethods() {
+      setStatus("Loading methods...");
+      const res = await fetch("/methods");
+      const payload = await res.json();
+      data = payload;
+      if (!data.default && data.methods.length) {
+        data.default = data.methods[0].id;
+      }
+      render();
+      setStatus("");
+    }
+
+    function validate() {
+      const ids = data.methods.map(m => (m.id || "").trim());
+      if (ids.some(id => !id)) return "Method id cannot be empty.";
+      const unique = new Set(ids);
+      if (unique.size !== ids.length) return "Method ids must be unique.";
+      if (data.methods.some(m => !(m.prompt || "").trim())) return "Prompt cannot be empty.";
+      if (!data.default || !ids.includes(data.default)) return "Default method is invalid.";
+      return "";
+    }
+
+    addBtn.addEventListener("click", () => {
+      const nextId = `method_${Date.now()}`;
+      data.methods.push({ id: nextId, label: "New Method", prompt: "" });
+      if (!data.default) data.default = nextId;
+      render();
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      const err = validate();
+      if (err) {
+        setStatus(err, true);
+        return;
+      }
+      setStatus("Saving...");
+      const res = await fetch("/methods", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        setStatus(msg || "Save failed.", true);
+        return;
+      }
+      const saved = await res.json();
+      data = saved;
+      render();
+      setStatus("Saved.");
+    });
+
+    loadMethods();
+  </script>
+</body>
+</html>
